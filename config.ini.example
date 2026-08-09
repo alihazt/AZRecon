@@ -1,0 +1,33 @@
+# AzRecon v4.0 — opsional API key konfiqurasiyası
+# Bu faylı "config.ini" adı ilə köçürün (cp config.ini.example config.ini)
+# və istədiyiniz key-ləri əlavə edin. Heç birini doldurmasanız da skript
+# tam işləyəcək — sadəcə o mənbələr atlanılacaq.
+#
+# Alternativ olaraq environment variable kimi də verə bilərsiniz:
+#   export SHODAN_API_KEY="..."
+#
+# Key əldə etmək üçün (hamısı pulsuz tier təklif edir):
+#   Shodan:          https://account.shodan.io/
+#   SecurityTrails:   https://securitytrails.com/app/signup
+#   FullHunt:         https://fullhunt.io/
+#   HaveIBeenPwned:   https://haveibeenpwned.com/API/Key
+#                     (qeyd: HIBP hazırda pullu abunə tələb edir, pulsuz
+#                     tier yoxdur — key olmadan bu bölmə sadəcə atlanılır)
+#   GitHub:           https://github.com/settings/tokens
+#                     (pulsuz, xüsusi scope tələb etmir — yalnız public
+#                     repo kodu axtarışı üçün autentifikasiya lazımdır)
+#   Censys:           https://search.censys.io/register (pulsuz tier var)
+#   FOFA:             https://fofa.info/ (pulsuz tier var)
+#   ZoomEye:          https://www.zoomeye.org/ (pulsuz tier var)
+
+[api_keys]
+SHODAN_API_KEY =
+SECURITYTRAILS_API_KEY =
+FULLHUNT_API_KEY =
+HIBP_API_KEY =
+GITHUB_TOKEN =
+CENSYS_API_ID =
+CENSYS_API_SECRET =
+FOFA_EMAIL =
+FOFA_KEY =
+ZOOMEYE_API_KEY =

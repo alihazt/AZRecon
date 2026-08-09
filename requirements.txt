@@ -1,0 +1,7 @@
+requests>=2.31.0
+aiohttp>=3.9.0
+colorama>=0.4.6
+tqdm>=4.66.0
+dnspython>=2.6.0
+mmh3>=4.1.0
+certstream>=1.12
