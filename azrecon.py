@@ -245,7 +245,11 @@ def banner():
 ██╔══██║ ███╔╝  ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
 ██║  ██║███████╗██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-         v5.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
+         v1.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
+         ===============================================================
+         https://github.com/alihazt
+         https://www.linkedin.com/in/ali-aliguliyev-4767b2309/
+         
     {Style.RESET_ALL}""")
 
 
