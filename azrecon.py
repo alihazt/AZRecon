@@ -245,11 +245,7 @@ def banner():
 ██╔══██║ ███╔╝  ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
 ██║  ██║███████╗██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-         v1.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
-         ===============================================================
-         https://github.com/alihazt
-         https://www.linkedin.com/in/ali-aliguliyev-4767b2309/
-         
+         v5.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
     {Style.RESET_ALL}""")
 
 
@@ -686,15 +682,62 @@ def raw_whois_query(domain, server, port=43, timeout=8):
         return None
 
 
+# .AZ üçün cəhd ediləcək port-43 WHOIS server namizədləri. IANA-nın
+# rəsmi referral zəncirində .az adətən görünmür, ona görə bu ayrıca,
+# əl ilə təsdiqlənməli namizəd siyahısıdır — qaranti verilmir ki, bu
+# server(lər) canlıdır və ya cavab formatı aşağıdakı parser-lə tam
+# uyğundur (registry format-ı dəyişə bilər).
+AZ_WHOIS_SERVER_CANDIDATES = ["whois.az", "whois.nic.az"]
+
+
+def get_az_raw_whois(domain, timeout=10):
+    """
+    .AZ domenlər üçün birbaşa port-43 WHOIS protokol sorğusu.
+    Diqqət: bu, whois.az VEB PORTALINDAKI CAPTCHA-dan tamamilə fərqli,
+    ayrı bir xidmətdir (standart WHOIS protokolu, TCP/43) — heç bir
+    anti-bot qorumasını dəf etmə cəhdi yoxdur. Server cavab verməzsə
+    (bağlıdırsa/mövcud deyilsə) sadəcə None qaytarılır.
+    """
+    for server in AZ_WHOIS_SERVER_CANDIDATES:
+        raw = raw_whois_query(domain, server, timeout=timeout)
+        if not raw:
+            continue
+        low = raw.lower()
+        if "no match" in low or "not found" in low or "no entries found" in low or len(raw.strip()) < 5:
+            continue
+
+        # Format qaranti edilmədiyi üçün bir neçə mümkün etiket variantını sınayırıq.
+        registrar_m = re.search(r"(?:Registrar|Sponsoring Registrar)[:\s]+(.+)", raw, re.IGNORECASE)
+        created_m = re.search(r"(?:Creation Date|Created On|Registered)[:\s]+(.+)", raw, re.IGNORECASE)
+        expires_m = re.search(r"(?:Expiry Date|Expiration Date|Expires On)[:\s]+(.+)", raw, re.IGNORECASE)
+        ns_matches = re.findall(r"(?:Name Server|Nserver|NS)[:\s]+(\S+)", raw, re.IGNORECASE)
+        status_matches = re.findall(r"(?:Status|Domain Status)[:\s]+(.+)", raw, re.IGNORECASE)
+
+        return {
+            "method": f"Xam WHOIS ({server}:43)",
+            "registrar": registrar_m.group(1).strip() if registrar_m else None,
+            "created": created_m.group(1).strip() if created_m else None,
+            "last_changed": None,
+            "expires": expires_m.group(1).strip() if expires_m else None,
+            "nameservers": [n.strip() for n in ns_matches] or None,
+            "status": [s.strip() for s in status_matches],
+            "raw_snippet": raw[:2000],
+            "note": "Format .az registri tərəfindən sənədləşdirilmədiyi üçün yuxarıdakı "
+                    "sahələr best-effort parse edilib — dəqiq məlumat üçün raw_snippet-ə baxın.",
+        }
+    return None
+
+
 def get_whois_local(domain):
     """
-    Yerli WHOIS məntiqi — üç qatlı fallback:
+    Yerli WHOIS məntiqi — dörd qatlı fallback:
       1) RDAP (rdap.org) — strukturlaşdırılmış, ən etibarlı mənbə.
       2) IANA referral zənciri ilə xam WHOIS protokolu (port 43) —
          bir çox qədim TLD registri RDAP dəstəkləmədiyi üçün lazımdır.
-      3) .AZ üçün: whois.az rəsmi portalı CAPTCHA ilə qorunur, ona görə
-         avtomatik sorğu ATILMIR (bypass cəhdi edilmir) — bunun əvəzinə
-         istifadəçiyə birbaşa manual axtarış linki təqdim olunur.
+      3) .AZ üçün: birbaşa whois.az:43 xam WHOIS PROTOKOLU (HTTP veb
+         portalından FƏRQLİDİR — CAPTCHA yalnız veb interfeysinə aiddir,
+         port 43 standart protokol sorğusudur, bypass deyil).
+      4) Hamısı boş qalarsa: istifadəçiyə manual axtarış linki verilir.
     """
     rdap = get_whois_rdap(domain)
     if rdap:
@@ -722,12 +765,16 @@ def get_whois_local(domain):
             }
 
     if tld == "az":
+        az_result = get_az_raw_whois(domain)
+        if az_result:
+            return az_result
         return {
             "method": "manual_required",
             "registrar": None, "created": None, "last_changed": None,
             "expires": None, "nameservers": None, "status": [],
-            "note": ".AZ registrinin rəsmi portalı (whois.az) CAPTCHA ilə qorunur, "
-                    "buna görə avtomatik sorğu edilmədi. Manual yoxlama üçün:",
+            "note": ".AZ üçün nə RDAP, nə də port-43 WHOIS cavab vermədi "
+                    "(server bağlıdır və ya cavab formatı fərqlidir). "
+                    "Manual yoxlama üçün (veb portalda CAPTCHA var):",
             "manual_url": f"https://www.whois.az/?domain={domain}",
         }
 
