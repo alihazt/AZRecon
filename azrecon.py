@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 AzRecon v6.0 — Azərbaycan bazarına fokuslanmış passiv OSINT/Recon aləti
+https://www.linkedin.com/in/ali-aliguliyev-4767b2309/
 ==========================================================================
 Yalnız icazəli (authorized) hədəflər üzərində — öz domeninizdə və ya rəsmi
 icazəniz (scope) olan pentest/bug-bounty çərçivəsində istifadə edin.
