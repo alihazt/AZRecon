@@ -11,8 +11,8 @@ giriş cəhdi etmir — yalnız açıq/ictimai mənbələrdən məlumat toplayı
 ## Quraşdırma
 
 ```bash
-git clone <repo-url>
-cd azrecon
+git clone https://github.com/alihazt/AZRecon
+cd AZRecon
 pip install -r requirements.txt --break-system-packages
 ```
 
