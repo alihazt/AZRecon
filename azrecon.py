@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AzRecon v5.0 — Azərbaycan bazarına fokuslanmış passiv OSINT/Recon aləti
+AzRecon v6.0 — Azərbaycan bazarına fokuslanmış passiv OSINT/Recon aləti
 ==========================================================================
 Yalnız icazəli (authorized) hədəflər üzərində — öz domeninizdə və ya rəsmi
 icazəniz (scope) olan pentest/bug-bounty çərçivəsində istifadə edin.
@@ -17,6 +17,8 @@ import asyncio
 import argparse
 import configparser
 import time
+import shutil
+import subprocess
 from datetime import datetime
 
 try:
@@ -54,6 +56,7 @@ CONFIG = {
     "FOFA_EMAIL": os.environ.get("FOFA_EMAIL", ""),
     "FOFA_KEY": os.environ.get("FOFA_KEY", ""),
     "ZOOMEYE_API_KEY": os.environ.get("ZOOMEYE_API_KEY", ""),
+    "WHOISFREAKS_API_KEY": os.environ.get("WHOISFREAKS_API_KEY", ""),
 }
 
 if os.path.exists("config.ini"):
@@ -236,8 +239,23 @@ def get_dns_server_version(domain):
 CONCURRENCY_LIMIT = 40
 HTTP_TIMEOUT = 6
 
+# ----------------------------------------------------------------------
+# Sadələşdirilmiş çıxış rejimi — True olanda ara-mərhələ "[*] ... aparılır"
+# tipli proqres mesajları gizlədilir, yalnız NƏTİCƏLƏR (tapılan
+# subdomen/sirr/breach və s.) və son xülasə göstərilir.
+# ----------------------------------------------------------------------
+QUIET = False
+
+
+def _info(msg):
+    """Proqres/status mesajı — QUIET rejimində gizlədilir."""
+    if not QUIET:
+        print(msg)
+
 
 def banner():
+    if QUIET:
+        return
     print(f"""{Fore.CYAN}
  █████╗ ███████╗██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
 ██╔══██╗╚══███╔╝██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
@@ -245,7 +263,7 @@ def banner():
 ██╔══██║ ███╔╝  ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
 ██║  ██║███████╗██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝
-         v5.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
+         v6.0 - Azərbaycan bazarı üçün xüsusi dizayn edilmiş OSINT aləti
     {Style.RESET_ALL}""")
 
 
@@ -570,7 +588,7 @@ def is_valid_subdomain(subdomain, target_domain):
 
 
 def get_all_subdomains(domain):
-    print(f"{Fore.YELLOW}[*] Alt domen axtarışı aparılır...{Style.RESET_ALL}")
+    _info(f"{Fore.YELLOW}[*] Alt domen axtarışı aparılır...{Style.RESET_ALL}")
     merged = {}
     for name, func in SOURCES:
         try:
@@ -728,10 +746,52 @@ def get_az_raw_whois(domain, timeout=10):
     return None
 
 
+def get_whoisfreaks_data(domain):
+    """
+    WhoisFreaks API (v2.0) — YALNIZ WHOISFREAKS_API_KEY verilibsə işə
+    düşür. Rəsmi, key-gated WHOIS xidmətidir (qeydiyyatda 500 pulsuz
+    kredit verir), 1500+ TLD dəstəkləyir və .az daxil bir çox ccTLD-də
+    RDAP/port-43-dən daha etibarlı nəticə verə bilir.
+    """
+    key = CONFIG["WHOISFREAKS_API_KEY"]
+    if not key:
+        return None
+    try:
+        resp = requests.get(
+            "https://api.whoisfreaks.com/v2.0/whois/live",
+            params={"format": "json", "domainName": domain, "apiKey": key},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not data.get("status") or data.get("domain_registered") == "no":
+            return None
+
+        registrar = (data.get("domain_registrar") or {}).get("registrar_name")
+        nameservers = data.get("name_servers") or data.get("nameservers") or []
+
+        return {
+            "method": "WhoisFreaks API",
+            "registrar": registrar,
+            "created": data.get("create_date"),
+            "last_changed": data.get("update_date"),
+            "expires": data.get("expiry_date"),
+            "nameservers": nameservers if isinstance(nameservers, list) else None,
+            "status": data.get("domain_status") or [],
+        }
+    except Exception:
+        return None
+
+
 def get_whois_local(domain):
     """
-    Yerli WHOIS məntiqi — dörd qatlı fallback:
-      1) RDAP (rdap.org) — strukturlaşdırılmış, ən etibarlı mənbə.
+    Yerli WHOIS məntiqi — beş qatlı fallback:
+      0) WhoisFreaks API (opsional key) — verilibsə ilk növbədə sınanır,
+         çünki ən etibarlı/rəsmi mənbədir.
+      1) RDAP (rdap.org) — strukturlaşdırılmış, ən etibarlı pulsuz mənbə.
       2) IANA referral zənciri ilə xam WHOIS protokolu (port 43) —
          bir çox qədim TLD registri RDAP dəstəkləmədiyi üçün lazımdır.
       3) .AZ üçün: birbaşa whois.az:43 xam WHOIS PROTOKOLU (HTTP veb
@@ -739,6 +799,10 @@ def get_whois_local(domain):
          port 43 standart protokol sorğusudur, bypass deyil).
       4) Hamısı boş qalarsa: istifadəçiyə manual axtarış linki verilir.
     """
+    whoisfreaks = get_whoisfreaks_data(domain)
+    if whoisfreaks:
+        return whoisfreaks
+
     rdap = get_whois_rdap(domain)
     if rdap:
         rdap["method"] = "RDAP"
@@ -1052,7 +1116,7 @@ def analyze_wayback_js(domain, max_files=20):
 
 
 def get_target_overview(domain, dns_records):
-    print(f"{Fore.CYAN}[*] Hədəf domenin ümumi profili toplanılır (IP, geolokasiya, WHOIS)...{Style.RESET_ALL}")
+    _info(f"{Fore.CYAN}[*] Hədəf domenin ümumi profili toplanılır (IP, geolokasiya, WHOIS)...{Style.RESET_ALL}")
     ip = resolve_ip(domain)
     overview = {"domain": domain, "ip": ip}
     overview["az_domain_type"] = classify_az_domain(domain)
@@ -1086,18 +1150,18 @@ def get_target_overview(domain, dns_records):
         overview["technologies"] = []
         overview["versions"] = {}
 
-    print(f"{Fore.YELLOW}[*] JavaScript fayllarında endpoint/sirr analizi aparılır (canlı)...{Style.RESET_ALL}")
+    _info(f"{Fore.YELLOW}[*] JavaScript fayllarında endpoint/sirr analizi aparılır (canlı)...{Style.RESET_ALL}")
     if html_body:
         overview["js_analysis"] = analyze_js_endpoints(f"https://{domain}", html_body)
     else:
         overview["js_analysis"] = {"js_files_analyzed": 0, "endpoints_found": [], "possible_secrets": []}
 
-    print(f"{Fore.YELLOW}[*] Wayback Machine arxivindən köhnə JS fayllar analiz edilir "
+    _info(f"{Fore.YELLOW}[*] Wayback Machine arxivindən köhnə JS fayllar analiz edilir "
           f"(unudulmuş endpoint-lər)...{Style.RESET_ALL}")
     overview["archived_js_analysis"] = analyze_wayback_js(domain)
 
     if CONFIG["GITHUB_TOKEN"]:
-        print(f"{Fore.YELLOW}[*] GitHub public repo-larında sızıntı axtarılır...{Style.RESET_ALL}")
+        _info(f"{Fore.YELLOW}[*] GitHub public repo-larında sızıntı axtarılır...{Style.RESET_ALL}")
     overview["github_leaks"] = search_github_code_leaks(domain)
 
     # ---- konsola çap ----
@@ -1339,17 +1403,20 @@ async def check_one(session, sub, semaphore):
 
 
 async def check_live_subdomains_async(subdomains):
-    print(f"\n{Fore.YELLOW}[*] Canlılıq + texnologiya fingerprint yoxlanılır "
+    _info(f"\n{Fore.YELLOW}[*] Canlılıq + texnologiya fingerprint yoxlanılır "
           f"(async, {CONCURRENCY_LIMIT} paralel)...{Style.RESET_ALL}")
     semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
     connector = aiohttp.TCPConnector(limit=CONCURRENCY_LIMIT, ssl=False)
     results = []
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [check_one(session, sub, semaphore) for sub in subdomains]
-        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Yoxlanılır", ncols=80):
+        for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Yoxlanılır", ncols=80, disable=QUIET):
             res = await coro
             results.append(res)
-            color = Fore.GREEN if "LIVE" in res["status"] else Fore.RED
+            is_live = "LIVE" in res["status"]
+            if QUIET and not is_live:
+                continue  # sadələşdirilmiş rejimdə OFFLINE sətirləri gizlədilir
+            color = Fore.GREEN if is_live else Fore.RED
             tech_note = f" [{', '.join(res['technologies'])}]" if res["technologies"] else ""
             ver_note = ""
             if res.get("versions"):
@@ -1397,12 +1464,12 @@ def get_asn_info(ip):
 
 
 def enrich_results(live_results):
-    print(f"\n{Fore.YELLOW}[*] IP/ASN, DNS CNAME, SSL sertifikat və takeover yoxlaması aparılır...{Style.RESET_ALL}")
+    _info(f"\n{Fore.YELLOW}[*] IP/ASN, DNS CNAME, SSL sertifikat və takeover yoxlaması aparılır...{Style.RESET_ALL}")
     enriched = []
     ip_cache = {}
     extra_ssl_subdomains = set()
 
-    for res in tqdm(live_results, desc="Zənginləşdirilir", ncols=80):
+    for res in tqdm(live_results, desc="Zənginləşdirilir", ncols=80, disable=QUIET):
         if "LIVE" not in res["status"]:
             res.update({"ip": None, "asn_info": None, "cname": None,
                         "takeover_risk": None, "ssl_info": None, "favicon_hash": None})
@@ -1551,6 +1618,144 @@ def save_report(domain, source_map, live_results, emails, wellknown, dns_records
 # ======================================================================
 
 # ======================================================================
+# 1.10) AÇIQ-MƏNBƏLİ OSINT ALƏTLƏRİNƏ ACCESS — sistemdə quraşdırılmış
+#      tanınmış açıq-mənbəli recon alətlərini (theHarvester, Amass,
+#      Subfinder) aşkarlayıb işə salır və nəticələrini birləşdirir.
+#      Bu alətlər AzRecon-un bir hissəsi kimi YENİDƏN YAZILMIR — mövcud
+#      quraşdırmaları çağırıb, əlavə əhatə dairəsi üçün nəticələrini
+#      alt domen siyahısına inteqrasiya edir.
+# ======================================================================
+
+EXTERNAL_TOOL_BINARIES = {
+    "theHarvester": ["theHarvester", "theharvester"],
+    "amass": ["amass"],
+    "subfinder": ["subfinder"],
+}
+
+
+def find_external_tool(name):
+    """PATH-da alət binarının olub-olmadığını yoxlayır (heç nə quraşdırmır)."""
+    for candidate in EXTERNAL_TOOL_BINARIES.get(name, [name]):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    return None
+
+
+def run_theharvester(domain, timeout=120):
+    binary = find_external_tool("theHarvester")
+    if not binary:
+        return None, "quraşdırılmayıb"
+    try:
+        result = subprocess.run(
+            [binary, "-d", domain, "-b", "crtsh,otx,urlscan"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        found = set(re.findall(rf"([a-zA-Z0-9_\-.]+\.{re.escape(domain)})", result.stdout))
+        return found, None
+    except subprocess.TimeoutExpired:
+        return None, f"timeout ({timeout}s)"
+    except Exception as e:
+        return None, str(e)
+
+
+def run_amass(domain, timeout=180):
+    binary = find_external_tool("amass")
+    if not binary:
+        return None, "quraşdırılmayıb"
+    try:
+        result = subprocess.run(
+            [binary, "enum", "-passive", "-d", domain, "-timeout", str(max(1, timeout // 60))],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        found = {line.strip().lower() for line in result.stdout.splitlines() if line.strip()}
+        return found, None
+    except subprocess.TimeoutExpired:
+        return None, f"timeout ({timeout}s)"
+    except Exception as e:
+        return None, str(e)
+
+
+def run_subfinder(domain, timeout=90):
+    binary = find_external_tool("subfinder")
+    if not binary:
+        return None, "quraşdırılmayıb"
+    try:
+        result = subprocess.run(
+            [binary, "-d", domain, "-silent"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        found = {line.strip().lower() for line in result.stdout.splitlines() if line.strip()}
+        return found, None
+    except subprocess.TimeoutExpired:
+        return None, f"timeout ({timeout}s)"
+    except Exception as e:
+        return None, str(e)
+
+
+def run_external_tools(domain):
+    """
+    Sistemdə tapılan xarici açıq-mənbəli OSINT alətlərini işə salır və
+    nəticələrini {alət_adı: {subdomenlər}} formasında qaytarır. Quraşdırılmamış
+    alətlər üçün xəbərdarlıq göstərilir, skript sınmır.
+    """
+    runners = {
+        "theHarvester": run_theharvester,
+        "amass": run_amass,
+        "subfinder": run_subfinder,
+    }
+    results = {}
+    print(f"\n{Fore.CYAN}{'='*60}")
+    print(f"  AÇIQ-MƏNBƏLİ XARİCİ ALƏTLƏR")
+    print(f"{'='*60}{Style.RESET_ALL}")
+    for name, runner in runners.items():
+        binary_path = find_external_tool(name)
+        if not binary_path:
+            print(f"  {Fore.LIGHTBLACK_EX}[atlanıldı] {name}: sistemdə tapılmadı "
+                  f"(quraşdırmaq istəsəniz README-ə baxın){Style.RESET_ALL}")
+            continue
+        print(f"  {Fore.YELLOW}[işə salınır] {name} ({binary_path})...{Style.RESET_ALL}")
+        found, error = runner(domain)
+        if error:
+            print(f"    {Fore.RED}xəta: {error}{Style.RESET_ALL}")
+            continue
+        results[name] = found or set()
+        print(f"    {Fore.GREEN}{len(found or [])} nəticə{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
+    return results
+
+
+def run_nmap_scan(domain, ip, timeout=300):
+    """
+    [AKTİV SKAN] nmap ilə yüngül port skanı — YALNIZ --nmap flag-ı ilə
+    açıq şəkildə istənəndə işə düşür. Bu, alətin qalan hissəsindən
+    fərqli olaraq PASSİV DEYİL — hədəfə birbaşa paket göndərir.
+    YALNIZ icazəniz olan hədəflərdə istifadə edin.
+    """
+    binary = find_external_tool("nmap") or shutil.which("nmap")
+    if not binary:
+        print(f"{Fore.RED}[!] nmap sistemdə tapılmadı — atlanıldı.{Style.RESET_ALL}")
+        return None
+    print(f"\n{Fore.RED}{'='*60}")
+    print(f"  [AKTİV SKAN XƏBƏRDARLIĞI] nmap {ip or domain} üzərində işə salınır")
+    print(f"  Bu artıq passiv OSINT deyil — yalnız icazəli hədəflərdə istifadə edin!")
+    print(f"{'='*60}{Style.RESET_ALL}\n")
+    try:
+        result = subprocess.run(
+            [binary, "-sV", "-T4", "--top-ports", "100", ip or domain],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        print(result.stdout)
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[!] nmap timeout ({timeout}s){Style.RESET_ALL}")
+        return None
+    except Exception as e:
+        print(f"{Fore.RED}[!] nmap xətası: {e}{Style.RESET_ALL}")
+        return None
+
+
+# ======================================================================
 # 1.9) CANLI SERTİFİKAT AXINI (CertStream) — real vaxtda yeni SSL
 #      sertifikatlarının izlənməsi. Certificate Transparency log-larının
 #      ictimai axınına (wss://certstream.calidog.io) qoşulur; hədəf
@@ -1598,20 +1803,32 @@ def watch_certstream(domain):
 
 
 def main():
-    banner()
+    global QUIET
 
     parser = argparse.ArgumentParser(
-        description="AzRecon v5.0 — Azərbaycan bazarına fokuslanmış passiv OSINT aləti"
+        description="AzRecon v6.0 — Azərbaycan bazarına fokuslanmış passiv OSINT aləti"
     )
     parser.add_argument("domain", help="Hədəf domen (məs: unibank.az)")
     parser.add_argument("-o", "--output", default=None,
                          help="Çıxış JSON faylının adı (default: report_<domain>.json)")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                         help="Sadələşdirilmiş çıxış: ara-mərhələ proqres mesajlarını gizlədir, "
+                              "yalnız tapılan nəticələri və son xülasəni göstərir")
     parser.add_argument("--watch", action="store_true",
                          help="Adi taramadan sonra CertStream-ə qoşulub hədəflə bağlı yeni "
                               "SSL sertifikatlarını REAL VAXTDA izləməyə başlayır (Ctrl+C ilə dayandırılır)")
     parser.add_argument("--watch-only", action="store_true",
                          help="Adi taramanı KEÇ, birbaşa CertStream canlı izləmə rejiminə keç")
+    parser.add_argument("--external-tools", action="store_true",
+                         help="Sistemdə quraşdırılmış açıq-mənbəli OSINT alətlərini (theHarvester, "
+                              "Amass, Subfinder) aşkarlayıb nəticələrini alt domen siyahısına birləşdirir")
+    parser.add_argument("--nmap", action="store_true",
+                         help="[AKTİV SKAN] nmap quraşdırılıbsa, hədəfə qarşı yüngül port skanı işə "
+                              "salır. DİQQƏT: bu artıq passiv deyil — YALNIZ icazəniz olan hədəflərdə istifadə edin")
     args = parser.parse_args()
+
+    QUIET = args.quiet
+    banner()
 
     target_domain = args.domain.strip().lower()
     output_path = args.output or f"report_{target_domain}.json"
@@ -1620,12 +1837,23 @@ def main():
         watch_certstream(target_domain)
         return
 
-    print(f"{Fore.CYAN}[*] DNS qeydləri (A/AAAA/MX/NS/TXT/SPF/DMARC) yoxlanılır...{Style.RESET_ALL}")
+    _info(f"{Fore.CYAN}[*] DNS qeydləri (A/AAAA/MX/NS/TXT/SPF/DMARC) yoxlanılır...{Style.RESET_ALL}")
     dns_records = get_dns_records(target_domain)
 
     target_overview = get_target_overview(target_domain, dns_records)
 
     source_map = get_all_subdomains(target_domain)
+
+    if args.external_tools:
+        external_results = run_external_tools(target_domain)
+        for tool_name, found_subs in external_results.items():
+            for sub in found_subs:
+                sub = sub.strip().lower()
+                if sub.startswith("www."):
+                    sub = sub[4:]
+                if sub and sub != target_domain and is_valid_subdomain(sub, target_domain):
+                    source_map.setdefault(sub, [])
+
     subdomains = sorted(source_map.keys())
 
     if not subdomains:
@@ -1650,14 +1878,14 @@ def main():
     for e in emails:
         print(f"   - {e}")
 
-    print(f"\n{Fore.YELLOW}[*] robots.txt / security.txt / sitemap.xml taranılır...{Style.RESET_ALL}")
+    _info(f"\n{Fore.YELLOW}[*] robots.txt / security.txt / sitemap.xml taranılır...{Style.RESET_ALL}")
     wellknown = harvest_from_wellknown(target_domain)
     if wellknown["security_txt_emails"]:
         print(f"    {Fore.GREEN}security.txt e-poçtları: {', '.join(wellknown['security_txt_emails'])}{Style.RESET_ALL}")
 
     all_emails_to_check = list(dict.fromkeys(emails + wellknown["security_txt_emails"]))
     if CONFIG["HIBP_API_KEY"]:
-        print(f"\n{Fore.YELLOW}[*] Sızıntı (data breach) axtarışı aparılır (HIBP)...{Style.RESET_ALL}")
+        _info(f"\n{Fore.YELLOW}[*] Sızıntı (data breach) axtarışı aparılır (HIBP)...{Style.RESET_ALL}")
     breach_data = check_domain_breaches(all_emails_to_check)
     if breach_data["enabled"]:
         if breach_data["results"]:
@@ -1672,6 +1900,9 @@ def main():
 
     save_report(target_domain, source_map, live_results, emails, wellknown, dns_records,
                 target_overview, breach_data, output_path)
+
+    if args.nmap:
+        run_nmap_scan(target_domain, target_overview.get("ip"))
 
     if args.watch:
         watch_certstream(target_domain)

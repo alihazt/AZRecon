@@ -1,4 +1,4 @@
-# AzRecon v5.0
+# AzRecon v6.0
 
 Azərbaycan bazarına fokuslanmış, passiv (yalnız ictimai mənbələrdən istifadə
 edən) subdomain enumeration və OSINT recon aləti.
@@ -11,7 +11,7 @@ giriş cəhdi etmir — yalnız açıq/ictimai mənbələrdən məlumat toplayı
 ## Quraşdırma
 
 ```bash
-git clone https://github.com/alihazt/AzRecon.git
+git clone <repo-url>
 cd azrecon
 pip install -r requirements.txt --break-system-packages
 ```
@@ -73,9 +73,11 @@ python3 azrecon.py hedef-domen.az
 - **JavaScript endpoint analizi** — səhifədəki JS fayllarından gizli
   API path-lərini çıxarır, mümkün açıqlanmış API açar/token-ləri aşkarlayır
   (tapılan dəyərlər hesabatda maskalanır, məs. `AKIA****MNOP`)
-- **Yerli .AZ WHOIS məntiqi** — RDAP → IANA referral xam WHOIS protokolu →
-  (.az üçün) whois.az-a manual keçid linki (CAPTCHA-nı bypass etmədən) +
-  .az ikinci səviyyə domenin növünün (gov/edu/com/org və s.) təsnifatı
+- **Yerli .AZ WHOIS məntiqi** — WhoisFreaks API (opsional) → RDAP →
+  IANA referral xam WHOIS protokolu → whois.az:43 birbaşa protokol
+  sorğusu → (hamısı boş qalarsa) manual keçid linki (CAPTCHA-nı bypass
+  etmədən) + .az ikinci səviyyə domenin növünün (gov/edu/com/org və s.)
+  təsnifatı
 - **GitHub Code Search sızıntı axtarışı** — public repolarda hədəf domenlə
   birlikdə password/api_key/secret/token sözlərinin keçdiyi faylları
   tapır (GITHUB_TOKEN tələb edir, pulsuz)
@@ -97,6 +99,43 @@ python3 azrecon.py hedef-domen.az --watch-only   # birbaşa canlı izləmə (tar
 Ctrl+C ilə dayandırılır. `certstream.calidog.io` ictimai xidmətdir, uptime-i
 zəmanətli deyil.
 - Strukturlaşdırılmış JSON hesabat
+
+## Sadələşdirilmiş çıxış (Quiet rejim)
+
+```bash
+python3 azrecon.py hedef-domen.az -q
+```
+
+Ara-mərhələ "[*] ... aparılır" proqres mesajlarını və OFFLINE sətirlərini
+gizlədir — yalnız tapılan canlı subdomenlər, sızıntılar, endpoint-lər və
+son xülasə göstərilir.
+
+## Açıq-mənbəli xarici OSINT alətlərinə giriş
+
+```bash
+python3 azrecon.py hedef-domen.az --external-tools
+```
+
+Sistemdə əvvəlcədən quraşdırılmış aşağıdakı tanınmış açıq-mənbəli
+alətləri avtomatik aşkarlayır və işə salır (quraşdırılmayıbsa sadəcə
+atlanılır, xəta vermir):
+
+- **theHarvester** — `pip install theHarvester`
+- **Amass** (OWASP) — https://github.com/owasp-amass/amass
+- **Subfinder** (ProjectDiscovery) — https://github.com/projectdiscovery/subfinder
+
+Tapılan bütün nəticələr avtomatik alt domen siyahısına birləşdirilir.
+
+## Aktiv skan (opsional, ehtiyatla istifadə edin)
+
+```bash
+python3 azrecon.py hedef-domen.az --nmap
+```
+
+`nmap` quraşdırılıbsa hədəfin əsas IP-sinə qarşı yüngül port skanı
+işə salır. **Bu, alətin qalan hissəsindən fərqli olaraq artıq passiv
+deyil** — hədəfə birbaşa şəbəkə paketi göndərir. Yalnız icazəniz olan
+(authorized) hədəflərdə istifadə edin.
 
 ## Lisenziya / Məsuliyyət
 
