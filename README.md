@@ -11,7 +11,7 @@ giriş cəhdi etmir — yalnız açıq/ictimai mənbələrdən məlumat toplayı
 ## Quraşdırma
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/alihazt/AZRecon
 cd azrecon
 pip install -r requirements.txt --break-system-packages
 ```
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ```bash
 python3 azrecon.py hedef-domen.az
-python3 azrecon.py hedef-domen.az -o meniqmerapport.json
+python3 azrecon.py hedef-domen.az -o report.json
 ```
 
 ## Opsional API key-lər
