@@ -1,4 +1,4 @@
-# AzRecon v4.0 — opsional API key konfiqurasiyası
+# AzRecon v6.0 — opsional API key konfiqurasiyası
 # Bu faylı "config.ini" adı ilə köçürün (cp config.ini.example config.ini)
 # və istədiyiniz key-ləri əlavə edin. Heç birini doldurmasanız da skript
 # tam işləyəcək — sadəcə o mənbələr atlanılacaq.
@@ -19,6 +19,8 @@
 #   Censys:           https://search.censys.io/register (pulsuz tier var)
 #   FOFA:             https://fofa.info/ (pulsuz tier var)
 #   ZoomEye:          https://www.zoomeye.org/ (pulsuz tier var)
+#   WhoisFreaks:      https://whoisfreaks.com/ (qeydiyyatda 500 pulsuz
+#                     kredit — .az daxil 1500+ TLD üçün ən etibarlı WHOIS)
 
 [api_keys]
 SHODAN_API_KEY =
@@ -31,3 +33,4 @@ CENSYS_API_SECRET =
 FOFA_EMAIL =
 FOFA_KEY =
 ZOOMEYE_API_KEY =
+WHOISFREAKS_API_KEY =
