@@ -11,8 +11,8 @@ giriş cəhdi etmir — yalnız açıq/ictimai mənbələrdən məlumat toplayı
 ## Quraşdırma
 
 ```bash
-git clone https://github.com/alihazt/AZRecon
-cd AZRecon
+git clone <repo-url>
+cd azrecon
 pip install -r requirements.txt --break-system-packages
 ```
 
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ```bash
 python3 azrecon.py hedef-domen.az
-python3 azrecon.py hedef-domen.az -o report.json
+python3 azrecon.py hedef-domen.az -o meniqmerapport.json
 ```
 
 ## Opsional API key-lər
@@ -121,8 +121,9 @@ alətləri avtomatik aşkarlayır və işə salır (quraşdırılmayıbsa sadəc
 atlanılır, xəta vermir):
 
 - **theHarvester** — `pip install theHarvester`
-- **Amass** (OWASP) — https://github.com/owasp-amass/amass
+- **Amass** (OWASP, passiv rejimdə: `-passive`) — https://github.com/owasp-amass/amass
 - **Subfinder** (ProjectDiscovery) — https://github.com/projectdiscovery/subfinder
+- **Assetfinder** — https://github.com/tomnomnom/assetfinder
 
 Tapılan bütün nəticələr avtomatik alt domen siyahısına birləşdirilir.
 
@@ -130,12 +131,24 @@ Tapılan bütün nəticələr avtomatik alt domen siyahısına birləşdirilir.
 
 ```bash
 python3 azrecon.py hedef-domen.az --nmap
+python3 azrecon.py hedef-domen.az --bruteforce --wordlist /path/to/subdomains.txt
+python3 azrecon.py hedef-domen.az --fuzz-paths --wordlist-paths /path/to/dirlist.txt
 ```
 
-`nmap` quraşdırılıbsa hədəfin əsas IP-sinə qarşı yüngül port skanı
-işə salır. **Bu, alətin qalan hissəsindən fərqli olaraq artıq passiv
-deyil** — hədəfə birbaşa şəbəkə paketi göndərir. Yalnız icazəniz olan
-(authorized) hədəflərdə istifadə edin.
+Bunların hər biri **alətin qalan hissəsindən fərqli olaraq artıq passiv
+deyil** — hədəfə birbaşa çoxlu şəbəkə sorğusu/paket göndərir. Yalnız
+icazəniz olan (authorized) hədəflərdə istifadə edin.
+
+- `--nmap` — `nmap` quraşdırılıbsa hədəfin əsas IP-sinə qarşı yüngül
+  port skanı işə salır.
+- `--bruteforce` — `gobuster` (https://github.com/OJ/gobuster)
+  quraşdırılıbsa DNS subdomain brute-force aparır. Öz wordlist faylınızı
+  göstərməlisiniz (məs. [SecLists](https://github.com/danielmiessler/SecLists)-
+  dən `Discovery/DNS/subdomains-top1million-5000.txt`) — heç bir wordlist
+  alətin daxilində bundle edilməyib.
+- `--fuzz-paths` — `ffuf` (https://github.com/ffuf/ffuf) quraşdırılıbsa
+  hədəf saytda gizli path/directory axtarışı aparır. Eyni şəkildə öz
+  wordlist-inizi verməlisiniz.
 
 ## Lisenziya / Məsuliyyət
 

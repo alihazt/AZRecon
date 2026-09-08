@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 AzRecon v6.0 — Azərbaycan bazarına fokuslanmış passiv OSINT/Recon aləti
-https://www.linkedin.com/in/ali-aliguliyev-4767b2309/
 ==========================================================================
 Yalnız icazəli (authorized) hədəflər üzərində — öz domeninizdə və ya rəsmi
 icazəniz (scope) olan pentest/bug-bounty çərçivəsində istifadə edin.
@@ -9,6 +8,8 @@ icazəniz (scope) olan pentest/bug-bounty çərçivəsində istifadə edin.
 
 import os
 import sys
+import shutil
+import subprocess
 import re
 import json
 import ssl
@@ -577,6 +578,80 @@ SOURCES = [
     ("fofa", src_fofa),
     ("zoomeye", src_zoomeye),
 ]
+
+
+# ======================================================================
+# AKTİV DNS BRUTE-FORCE (Gobuster / ffuf) — DEFOLT SÖNÜLÜDÜR.
+# Yalnız istifadəçi --bruteforce (gobuster, DNS) və ya --fuzz-paths
+# (ffuf, HTTP path/directory) bayrağını AÇIQ ŞƏKİLDƏ verib öz wordlist
+# faylını göstərəndə işə düşür. Heç bir wordlist bu alətin daxilində
+# bundle/download edilmir — istifadəçi öz wordlist-ini (məs. SecLists-
+# dən) təmin etməlidir. Bu, passiv OSINT-dən fərqli olaraq hədəfin DNS/
+# HTTP infrastrukturuna birbaşa çoxlu sorğu göndərir — YALNIZ icazəli
+# (authorized) hədəflərdə istifadə edilməlidir.
+# ======================================================================
+
+def run_gobuster_dns(domain, wordlist_path, threads=50, timeout=900):
+    path = find_external_tool("gobuster")
+    if not path:
+        print(f"{Fore.RED}[!] 'gobuster' PATH-də tapılmadı. Quraşdırın: "
+              f"https://github.com/OJ/gobuster{Style.RESET_ALL}")
+        return set()
+    if not wordlist_path or not os.path.exists(wordlist_path):
+        print(f"{Fore.RED}[!] Wordlist faylı tapılmadı: {wordlist_path}{Style.RESET_ALL}")
+        return set()
+
+    print(f"{Fore.YELLOW}[*] gobuster ilə AKTİV DNS brute-force başladılır "
+          f"(wordlist: {wordlist_path})... Bu, hədəfə çoxlu DNS sorğusu göndərəcək.{Style.RESET_ALL}")
+    found = set()
+    try:
+        result = subprocess.run(
+            [path, "dns", "-d", domain, "-w", wordlist_path, "-q", "-t", str(threads)],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        for line in result.stdout.splitlines():
+            m = re.match(r"Found:\s*(\S+)", line.strip())
+            if m:
+                found.add(m.group(1).rstrip(".").lower())
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[!] gobuster timeout-a düşdü ({timeout}san) — nəticələr natamam ola bilər.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[!] gobuster xətası: {e}{Style.RESET_ALL}")
+
+    print(f"{Fore.GREEN}[+] gobuster DNS brute-force: {len(found)} yeni subdomen tapıldı.{Style.RESET_ALL}")
+    return found
+
+
+def run_ffuf_content_discovery(base_url, wordlist_path, threads=50, timeout=900):
+    """ffuf ilə hədəf saytda gizli path/directory kəşfiyyatı (HTTP fuzzing)."""
+    path = find_external_tool("ffuf")
+    if not path:
+        print(f"{Fore.RED}[!] 'ffuf' PATH-də tapılmadı. Quraşdırın: "
+              f"https://github.com/ffuf/ffuf{Style.RESET_ALL}")
+        return []
+    if not wordlist_path or not os.path.exists(wordlist_path):
+        print(f"{Fore.RED}[!] Wordlist faylı tapılmadı: {wordlist_path}{Style.RESET_ALL}")
+        return []
+
+    print(f"{Fore.YELLOW}[*] ffuf ilə AKTİV path/directory fuzzing başladılır "
+          f"({base_url})... Bu, hədəfə çoxlu HTTP sorğusu göndərəcək.{Style.RESET_ALL}")
+    found_paths = []
+    try:
+        result = subprocess.run(
+            [path, "-u", f"{base_url}/FUZZ", "-w", wordlist_path,
+             "-mc", "200,204,301,302,307,401,403", "-t", str(threads), "-s"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        found_paths = [line.strip() for line in result.stdout.splitlines() if line.strip()][:300]
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[!] ffuf timeout-a düşdü ({timeout}san) — nəticələr natamam ola bilər.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[!] ffuf xətası: {e}{Style.RESET_ALL}")
+
+    print(f"{Fore.GREEN}[+] ffuf: {len(found_paths)} path/directory tapıldı.{Style.RESET_ALL}")
+    return found_paths
+
+
 
 
 def is_valid_subdomain(subdomain, target_domain):
@@ -1631,6 +1706,9 @@ EXTERNAL_TOOL_BINARIES = {
     "theHarvester": ["theHarvester", "theharvester"],
     "amass": ["amass"],
     "subfinder": ["subfinder"],
+    "assetfinder": ["assetfinder"],
+    "gobuster": ["gobuster"],
+    "ffuf": ["ffuf"],
 }
 
 
@@ -1694,6 +1772,23 @@ def run_subfinder(domain, timeout=90):
         return None, str(e)
 
 
+def run_assetfinder(domain, timeout=90):
+    binary = find_external_tool("assetfinder")
+    if not binary:
+        return None, "quraşdırılmayıb"
+    try:
+        result = subprocess.run(
+            [binary, "--subs-only", domain],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        found = {line.strip().lower() for line in result.stdout.splitlines() if line.strip()}
+        return found, None
+    except subprocess.TimeoutExpired:
+        return None, f"timeout ({timeout}s)"
+    except Exception as e:
+        return None, str(e)
+
+
 def run_external_tools(domain):
     """
     Sistemdə tapılan xarici açıq-mənbəli OSINT alətlərini işə salır və
@@ -1704,6 +1799,7 @@ def run_external_tools(domain):
         "theHarvester": run_theharvester,
         "amass": run_amass,
         "subfinder": run_subfinder,
+        "assetfinder": run_assetfinder,
     }
     results = {}
     print(f"\n{Fore.CYAN}{'='*60}")
@@ -1822,10 +1918,21 @@ def main():
                          help="Adi taramanı KEÇ, birbaşa CertStream canlı izləmə rejiminə keç")
     parser.add_argument("--external-tools", action="store_true",
                          help="Sistemdə quraşdırılmış açıq-mənbəli OSINT alətlərini (theHarvester, "
-                              "Amass, Subfinder) aşkarlayıb nəticələrini alt domen siyahısına birləşdirir")
+                              "Amass -passive, Subfinder, Assetfinder) aşkarlayıb nəticələrini "
+                              "alt domen siyahısına birləşdirir")
     parser.add_argument("--nmap", action="store_true",
                          help="[AKTİV SKAN] nmap quraşdırılıbsa, hədəfə qarşı yüngül port skanı işə "
                               "salır. DİQQƏT: bu artıq passiv deyil — YALNIZ icazəniz olan hədəflərdə istifadə edin")
+    parser.add_argument("--bruteforce", action="store_true",
+                         help="[AKTİV SKAN] gobuster ilə DNS subdomain brute-force işə salır. "
+                              "--wordlist ilə birlikdə istifadə edilməlidir. YALNIZ icazəli hədəflərdə istifadə edin")
+    parser.add_argument("--wordlist", default=None,
+                         help="--bruteforce üçün wordlist fayl yolu (məs. SecLists-dən subdomains-top1million-5000.txt)")
+    parser.add_argument("--fuzz-paths", action="store_true",
+                         help="[AKTİV SKAN] ffuf ilə hədəf saytda gizli path/directory axtarışı işə salır. "
+                              "--wordlist-paths (və ya --wordlist) tələb edir. YALNIZ icazəli hədəflərdə istifadə edin")
+    parser.add_argument("--wordlist-paths", default=None,
+                         help="--fuzz-paths üçün ayrı wordlist (verilməzsə --wordlist istifadə olunur)")
     args = parser.parse_args()
 
     QUIET = args.quiet
@@ -1901,6 +2008,33 @@ def main():
 
     save_report(target_domain, source_map, live_results, emails, wellknown, dns_records,
                 target_overview, breach_data, output_path)
+
+    if args.bruteforce:
+        wordlist = args.wordlist
+        if not wordlist:
+            print(f"{Fore.RED}[!] --bruteforce üçün --wordlist tələb olunur. "
+                  f"Məs: --bruteforce --wordlist /path/to/subdomains.txt{Style.RESET_ALL}")
+        else:
+            brute_found = run_gobuster_dns(target_domain, wordlist)
+            new_ones = {s for s in brute_found if is_valid_subdomain(s, target_domain) and s != target_domain}
+            for s in new_ones:
+                source_map.setdefault(s, [])
+            if new_ones:
+                print(f"{Fore.MAGENTA}[+] Brute-force ilə tapılan yeni subdomenlər hesabata əlavə olundu "
+                      f"({len(new_ones)} ədəd) — yenidən JSON-a yazılır...{Style.RESET_ALL}")
+                save_report(target_domain, source_map, live_results, emails, wellknown, dns_records,
+                            target_overview, breach_data, output_path)
+
+    if args.fuzz_paths:
+        wordlist_paths = args.wordlist_paths or args.wordlist
+        if not wordlist_paths:
+            print(f"{Fore.RED}[!] --fuzz-paths üçün --wordlist-paths (və ya --wordlist) tələb olunur.{Style.RESET_ALL}")
+        else:
+            discovered_paths = run_ffuf_content_discovery(f"https://{target_domain}", wordlist_paths)
+            if discovered_paths:
+                print(f"\n{Fore.MAGENTA}[+] ffuf ilə tapılan path-lər:{Style.RESET_ALL}")
+                for p in discovered_paths[:30]:
+                    print(f"    {p}")
 
     if args.nmap:
         run_nmap_scan(target_domain, target_overview.get("ip"))
