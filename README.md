@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ```bash
 python3 azrecon.py hedef-domen.az
-python3 azrecon.py hedef-domen.az -o meniqmerapport.json
+python3 azrecon.py hedef-domen.az -o report.json
 ```
 
 ## Opsional API key-lər
