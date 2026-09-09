@@ -12,7 +12,7 @@ giriş cəhdi etmir — yalnız açıq/ictimai mənbələrdən məlumat toplayı
 
 ```bash
 git clone https://github.com/alihazt/AZRecon
-cd azrecon
+cd AZRecon
 pip install -r requirements.txt --break-system-packages
 ```
 
